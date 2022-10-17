@@ -1,0 +1,170 @@
+---
+title: "Homework Assignment 2"
+author: "Reynaldo Perez"
+date: "October 16, 2022"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```{r setup, echo=FALSE}
+library(knitr)
+# set global chunk options: images will be 7x5 inches
+knitr::opts_chunk$set(fig.width=7, fig.height=5)
+options(digits = 4)
+
+
+## indents are for indenting r code as formatted text
+## They may need to be adjusted depending on your OS
+# if your output looks odd, increase or decrease indent
+indent1 = '    '
+indent2 = '        '
+indent3 = '            '
+```
+
+```{r}
+library(tidyverse)  # Load tidyverse
+library(tidymodels)  # Load tidymodels
+
+abalone <- read.csv("/Users/reynaldoperez/Downloads/homework-2-2/data/abalone.csv")  # Read the data set
+
+names(abalone)  # See the names and number of columns of the data set
+```
+
+Q1) Let's add a new variable, named $age$, to the data set.
+
+```{r}
+age <- abalone$rings + 1.5  # Calculate age
+
+abalone_new <- cbind(abalone, age)  # Add new variable to the dataset
+
+head(abalone_new)  # Check
+```
+Now, let us assess the distribution of $age$:
+
+```{r}
+hist(abalone_new$age, breaks = "Sturges", main = paste("Distribution of Age"))
+
+```
+
+As one can see, the distribution of $age$ is slightly skewed to the left, with the highest peak at between 10 to ~12 years.
+
+
+Q2) We will now split the abalone data into a training set and a testing set. We will use stratified sampling.
+
+```{r}
+set.seed(1115)
+
+abalone_split <- initial_split(abalone_new, prop = 0.75, strata = age)
+
+abalone_train <- training(abalone_split)
+abalone_test <- testing(abalone_split)
+
+```
+
+
+
+
+
+
+Q3) Let us create a recipe for predicting the outcome variable, $age$:
+
+```{r}
+simple_abalone_recipe <- recipe(age ~ ., data = abalone_train)
+
+simple_abalone_recipe
+
+```
+
+Now, we will complete the recipe:
+
+```{r}
+abalone_recipe <- recipe(age ~ type + longest_shell + diameter + height + whole_weight + shucked_weight + viscera_weight + shell_weight, data = abalone_train) %>% 
+  step_dummy_multi_choice(starts_with("type")) %>%
+  prep() %>%
+  step_interact(terms = ~type_M:shucked_weight) %>%
+  step_interact(terms = ~type_F:shucked_weight) %>%
+  step_interact(terms = ~type_I:shucked_weight) %>%
+  step_interact(terms = ~longest_shell:diameter) %>%
+  step_interact(terms = ~shucked_weight:shell_weight) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+```
+
+Hence, our recipe is finished. Note that we did not include the $rings$ variable in our recipe. This is because obtaining the number of rings is a very time-consuming task, and the other observed measurements would help predict the age much faster. 
+
+
+Q4) Now, we will create and store a linear regression object:
+
+```{r}
+lm_model <- linear_reg() %>%
+  set_engine("lm")
+```
+
+
+
+
+
+
+Q5) We will now develop an empty workflow, and add the model and recipe we created in the previous questions:
+
+```{r}
+lm_wflow <- workflow() %>%
+  add_model(lm_model) %>%
+  add_recipe(abalone_recipe)
+```
+
+
+
+
+Q6) Let's now use the $fit()$ object to predict the age of a hypothetical female abalone with the given information. 
+
+
+```{r}
+lm_fit <- fit(lm_wflow, abalone_train)
+
+lm_fit %>%
+  extract_fit_parsnip() %>%
+  tidy()
+
+x0 <- data.frame(type = "type_F", longest_shell = 0.5, diameter = 0.1, height = 0.3, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, shell_weight = 1)  # Construct a data frame of the given information
+x0  # Display data frame
+
+
+## predict.lm(lm_fit, new_data = x0)  # Predicted age, but received error saying model cannot include NA values
+```
+
+
+Q7) Now, we will assess our model's performance.
+
+
+```{r}
+library(yardstick)
+
+abalone_train_res <- predict(lm_fit, new_data = abalone_train %>% select(-age))  # Develop predicted values for age
+abalone_train_res %>% 
+  head()
+```
+
+Now, we will develop the metric sets:
+
+```{r}
+abalone_metrics <- metric_set(rmse, rsq, mae)
+## abalone_metrics(abalone_train_res, truth = age, estimate = .pred)  # Error saying length of "truth" and "estimate" must match
+
+```
+
+Then, create a tibble of the model's predicted values:
+
+```{r}
+abalone_train_res <- bind_cols(abalone_train_res, abalone_train %>% select(age))
+abalone_train_res %>% 
+  head()
+
+
+```
+
+As one can see, the predicted value is not that far off the actual value of age. The $R^2$ value we calculated is the percentage amount that the variability observed in $age$ is explained by the regression model. 
